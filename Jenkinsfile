@@ -100,7 +100,7 @@ Save to: $env:TEST_CASE_FILE
 "@
 
                             Write-Host "Sending request to Claude..."
-                            & claude-code --agent jira-test-generator $prompt
+                            & claude --agent jira-test-generator $prompt
 
                             # Check if file was created
                             Start-Sleep -Seconds 2
@@ -213,7 +213,7 @@ Start executing test cases now.
 
                         Write-Host "Invoking manual-test-runner agent via Claude Code..."
 
-                        & claude-code --agent manual-test-runner @"
+                        & claude --agent manual-test-runner @"
 Execute all test cases from: $env:TEST_CASE_FILE
 
 Application: $env:APP_URL
