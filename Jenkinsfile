@@ -96,7 +96,9 @@ Create detailed test case(s) in markdown format:
 - Expected results
 - Test data
 
+IMPORTANT: Write the file automatically without asking for permission or confirmation.
 Save to: $env:TEST_CASE_FILE
+Do NOT ask if you should adjust anything - just write the file directly.
 "@
 
                             Write-Host "Sending request to Claude..."
@@ -277,7 +279,9 @@ Execute the selected test case step-by-step:
 3. Take screenshots only if test fails
 4. Document actual vs expected results
 
+IMPORTANT: Write the results file automatically without asking for permission or confirmation.
 Save results to: $env:TEST_RESULT_FILE
+Do NOT ask questions - just write the file directly.
 
 Output in markdown format with:
 - Test case ID and title
