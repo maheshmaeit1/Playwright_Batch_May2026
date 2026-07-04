@@ -44,7 +44,7 @@ DO NOT ask for permission or confirmation. Write the markdown content directly.
 Start generating now.`;
 
   const response = await client.messages.create({
-    model: "claude-opus-4-1",
+    model: "claude-sonnet-5",
     max_tokens: 4096,
     messages: [
       {
@@ -101,7 +101,7 @@ DO NOT ask for permission or confirmation. Write the markdown content directly.
 Start executing now.`;
 
   const response = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
+    model: "claude-sonnet-5",
     max_tokens: 4096,
     messages: [
       {
