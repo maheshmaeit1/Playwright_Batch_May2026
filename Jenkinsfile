@@ -71,38 +71,28 @@ pipeline {
 
                     try {
                         powershell '''
-                            Write-Host "Invoking jira-test-generator agent via Claude Code..."
+                            Write-Host "Generating test cases via TypeScript Agent..."
 
                             # Create output directory
                             New-Item -ItemType Directory -Force -Path (Split-Path $env:TEST_CASE_FILE) | Out-Null
 
-                            # Invoke Claude Code with jira-test-generator agent
-                            $prompt = @"
-Generate comprehensive manual test cases for SCRUM-2: Product Search Functionality
+                            # Install dependencies if needed
+                            $scriptDir = Join-Path $env:PROJECT_DIR "scripts"
+                            Push-Location $scriptDir
 
-Application: $env:APP_URL
-Test User: neuralqaacademy@gmail.com / Tester@123
+                            if (-not (Test-Path "node_modules")) {
+                                Write-Host "Installing dependencies..."
+                                npm install
+                            }
 
-Requirements:
-- Search for "Computer" keyword
-- Verify search results load
-- Verify "Simple Computer" product present in list
+                            # Run TypeScript agent via ts-node
+                            Write-Host "Invoking jira-test-generator agent..."
+                            npx ts-node invoke_claude_agent.ts --action generate `
+                                --jira-issue $env:JIRA_ISSUE `
+                                --app-url $env:APP_URL `
+                                --output-file $env:TEST_CASE_FILE
 
-Create detailed test case(s) in markdown format:
-- Test case title (TC-XXX)
-- Objective
-- Preconditions
-- Numbered test steps (plain language, no code)
-- Expected results
-- Test data
-
-IMPORTANT: Write the file automatically without asking for permission or confirmation.
-Save to: $env:TEST_CASE_FILE
-Do NOT ask if you should adjust anything - just write the file directly.
-"@
-
-                            Write-Host "Sending request to Claude..."
-                            & claude --agent jira-test-generator $prompt
+                            Pop-Location
 
                             # Check if file was created
                             Start-Sleep -Seconds 2
@@ -227,67 +217,23 @@ Do NOT ask if you should adjust anything - just write the file directly.
                         "Starting test execution..." | Out-File -FilePath "$env:LOGS_DIR\\execution.log"
                         "Timestamp: $(Get-Date)" | Add-Content -Path "$env:LOGS_DIR\\execution.log"
                         "App URL: $env:APP_URL" | Add-Content -Path "$env:LOGS_DIR\\execution.log"
+                        "Selected Test: $env:SELECTED_TEST_CASE" | Add-Content -Path "$env:LOGS_DIR\\execution.log"
                         "" | Add-Content -Path "$env:LOGS_DIR\\execution.log"
 
-                        $promptPath = Join-Path $env:TEMP "execute_tests_$env:BUILD_NUMBER.txt"
-@"
-You are the manual-test-runner agent running locally.
+                        Write-Host "Executing tests via TypeScript Agent..."
 
-Task: Execute test cases and document results
+                        # Change to scripts directory and run agent
+                        $scriptDir = Join-Path $env:PROJECT_DIR "scripts"
+                        Push-Location $scriptDir
 
-Instructions:
-1. Read the test cases from: $env:TEST_CASE_FILE
-2. Navigate to the application at: $env:APP_URL
-3. Execute each test case step-by-step:
-   - For each test, follow the steps exactly
-   - Verify expected results match actual results
-   - Note any failures or unexpected behavior
-4. For failed tests:
-   - Take screenshots
-   - Document what went wrong
-   - Note the error messages
-5. Create a detailed results file
+                        # Run TypeScript agent via ts-node
+                        Write-Host "Invoking manual-test-runner agent..."
+                        npx ts-node invoke_claude_agent.ts --action execute `
+                            --test-case-file $env:TEST_CASE_FILE `
+                            --app-url $env:APP_URL `
+                            --output-file $env:TEST_RESULT_FILE
 
-Output format - Create a markdown file with:
-- Overall statistics (passed/failed/total)
-- For each test case:
-  - Test ID and title
-  - Status (PASS or FAIL)
-  - If FAIL: screenshot path and error description
-- Summary and recommendations
-
-Save results to: $env:TEST_RESULT_FILE
-Save evidence to: $env:EVIDENCE_DIR\\
-
-Start executing test cases now.
-"@ | Out-File -FilePath $promptPath -Encoding utf8
-
-                        Get-Content $promptPath | Add-Content -Path "$env:LOGS_DIR\\execution.log"
-
-                        Write-Host "Invoking manual-test-runner agent via Claude Code..."
-
-                        & claude --agent manual-test-runner @"
-Execute ONLY test case: $env:SELECTED_TEST_CASE
-
-Test case file: $env:TEST_CASE_FILE
-Application: $env:APP_URL
-Test User: neuralqaacademy@gmail.com / Tester@123
-
-Execute the selected test case step-by-step:
-1. Follow the test steps exactly
-2. Document PASS or FAIL for each step
-3. Take screenshots only if test fails
-4. Document actual vs expected results
-
-IMPORTANT: Write the results file automatically without asking for permission or confirmation.
-Save results to: $env:TEST_RESULT_FILE
-Do NOT ask questions - just write the file directly.
-
-Output in markdown format with:
-- Test case ID and title
-- Status (PASS or FAIL)
-- Observations and findings
-"@
+                        Pop-Location
 
                         Start-Sleep -Seconds 2
 

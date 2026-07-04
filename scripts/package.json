@@ -1,0 +1,21 @@
+{
+  "name": "qa-automation-agents",
+  "version": "1.0.0",
+  "description": "TypeScript agents for test generation and execution",
+  "type": "module",
+  "main": "invoke_claude_agent.ts",
+  "scripts": {
+    "start": "ts-node invoke_claude_agent.ts",
+    "build": "tsc",
+    "generate": "ts-node invoke_claude_agent.ts --action generate",
+    "execute": "ts-node invoke_claude_agent.ts --action execute"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "ts-node": "^10.0.0"
+  }
+}
