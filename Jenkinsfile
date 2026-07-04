@@ -161,12 +161,63 @@ Save to: $env:TEST_CASE_FILE
             }
         }
 
+        stage('Select Test Case') {
+            steps {
+                script {
+                    echo "🔵 Stage: Select Test Case"
+                    echo "-------------------------------------------"
+
+                    // Extract test case names from markdown file
+                    def testCases = powershell(script: '''
+                        $content = Get-Content $env:TEST_CASE_FILE -Raw
+                        $matches = [regex]::Matches($content, '## Test Case: \\[(TC-\\d+)\\]\\s*(.+?)(?=\\n|$)')
+                        $testCases = @()
+                        foreach ($match in $matches) {
+                            $tcId = $match.Groups[1].Value
+                            $tcTitle = $match.Groups[2].Value.Trim()
+                            $testCases += "$tcId - $tcTitle"
+                        }
+                        if ($testCases.Count -eq 0) {
+                            Write-Host "No test cases found"
+                            exit 1
+                        }
+                        $testCases -join ","
+                    ''', returnStdout: true).trim().split(',')
+
+                    echo "Available test cases:"
+                    testCases.eachWithIndex { tc, idx ->
+                        echo "${idx + 1}. ${tc}"
+                    }
+
+                    // Ask user to select test case
+                    def selectedTest = input(
+                        message: 'Select which test case to run (enter number)',
+                        parameters: [
+                            choice(
+                                name: 'TEST_SELECTION',
+                                choices: testCases,
+                                description: 'Choose a test case'
+                            )
+                        ]
+                    )
+
+                    // Extract TC ID from selection
+                    def tcId = selectedTest.split(' - ')[0].trim()
+                    env.SELECTED_TEST_CASE = tcId
+
+                    echo "✅ Selected: ${selectedTest}"
+                    echo "Test ID: ${tcId}"
+                }
+            }
+        }
+
         stage('Execute Tests') {
             steps {
                 script {
                     echo "🔵 Stage: Execute Tests"
                     echo "-------------------------------------------"
                     echo "Test Cases: ${TEST_CASE_FILE}"
+                    echo "Selected Test: ${SELECTED_TEST_CASE}"
                     echo "Results: ${TEST_RESULT_FILE}"
 
                     try {
@@ -214,12 +265,13 @@ Start executing test cases now.
                         Write-Host "Invoking manual-test-runner agent via Claude Code..."
 
                         & claude --agent manual-test-runner @"
-Execute all test cases from: $env:TEST_CASE_FILE
+Execute ONLY test case: $env:SELECTED_TEST_CASE
 
+Test case file: $env:TEST_CASE_FILE
 Application: $env:APP_URL
 Test User: neuralqaacademy@gmail.com / Tester@123
 
-Execute each test case step-by-step:
+Execute the selected test case step-by-step:
 1. Follow the test steps exactly
 2. Document PASS or FAIL for each step
 3. Take screenshots only if test fails
