@@ -8,27 +8,17 @@ pipeline {
     }
 
     environment {
-        // FIX: params are not auto-exported to shell steps — export them explicitly
-        // so $JIRA_ISSUE / $APP_URL resolve correctly inside `sh` blocks.
         JIRA_ISSUE = "${params.JIRA_ISSUE}"
         APP_URL    = "${params.APP_URL}"
 
-        // Local paths
         PROJECT_DIR = "${WORKSPACE}"
         TEST_CASES_DIR = "${WORKSPACE}/manual-testing/test-cases"
         TEST_RESULTS_DIR = "${WORKSPACE}/results"
         EVIDENCE_DIR = "${WORKSPACE}/results/evidence"
         LOGS_DIR = "${WORKSPACE}/results/logs"
 
-        // Issue specific paths
         TEST_CASE_FILE = "${TEST_CASES_DIR}/${JIRA_ISSUE}-test-cases.md"
         TEST_RESULT_FILE = "${TEST_RESULTS_DIR}/${JIRA_ISSUE}-test-results.md"
-
-        // FIX: BUILD_TIMESTAMP is not a built-in Jenkins variable. Referencing it
-        // here (before any stage runs) threw MissingPropertyException and killed
-        // the pipeline before "Initialize" ever executed. Removed from here;
-        // it's captured at runtime in the Initialize stage instead, and BUILD_INFO
-        // is now built there too (env vars can't be built with `sh` output this early).
     }
 
     options {
@@ -41,12 +31,10 @@ pipeline {
         stage('Initialize') {
             steps {
                 script {
-                    // FIX: capture a real timestamp at runtime instead of relying on
-                    // a plugin-provided BUILD_TIMESTAMP that may not exist.
-                    env.BUILD_TIMESTAMP = sh(script: 'date "+%Y-%m-%d %H:%M:%S"', returnStdout: true).trim()
+                    env.BUILD_TIMESTAMP = powershell(script: 'Get-Date -Format "yyyy-MM-dd HH:mm:ss"', returnStdout: true).trim()
 
                     echo "=========================================="
-                    echo "QA Test Automation Pipeline (Local)"
+                    echo "QA Test Automation Pipeline (Windows)"
                     echo "=========================================="
                     echo "Build Number: ${BUILD_NUMBER}"
                     echo "Job Name: ${JOB_NAME}"
@@ -56,15 +44,15 @@ pipeline {
                     echo "Workspace: ${WORKSPACE}"
                     echo "=========================================="
 
-                    sh '''
-                        mkdir -p ${TEST_RESULTS_DIR}
-                        mkdir -p ${EVIDENCE_DIR}
-                        mkdir -p ${LOGS_DIR}
+                    powershell '''
+                        New-Item -ItemType Directory -Force -Path $env:TEST_RESULTS_DIR | Out-Null
+                        New-Item -ItemType Directory -Force -Path $env:EVIDENCE_DIR | Out-Null
+                        New-Item -ItemType Directory -Force -Path $env:LOGS_DIR | Out-Null
 
-                        echo "Created result directories"
-                        echo "  - ${TEST_RESULTS_DIR}"
-                        echo "  - ${EVIDENCE_DIR}"
-                        echo "  - ${LOGS_DIR}"
+                        Write-Host "Created result directories"
+                        Write-Host "  - $env:TEST_RESULTS_DIR"
+                        Write-Host "  - $env:EVIDENCE_DIR"
+                        Write-Host "  - $env:LOGS_DIR"
                     '''
                 }
             }
@@ -78,23 +66,19 @@ pipeline {
                 script {
                     echo "Stage: Generate Test Cases"
                     echo "-------------------------------------------"
-                    echo "Using jira-test-generator agent..."
                     echo "Issue: ${JIRA_ISSUE}"
                     echo "Output: ${TEST_CASE_FILE}"
 
                     try {
-                        // FIX: unquoted heredoc delimiters (PROMPT / EOF instead of
-                        // 'PROMPT' / 'EOF') so $JIRA_ISSUE, $TEST_CASE_FILE etc are
-                        // actually substituted into the prompt text instead of being
-                        // written out as literal "${JIRA_ISSUE}".
-                        sh '''
-                            echo "Generating test cases for ${JIRA_ISSUE}..." > ${LOGS_DIR}/generation.log
-                            echo "Requesting Claude to generate test cases..."
+                        powershell '''
+                            "Generating test cases for $env:JIRA_ISSUE..." | Out-File -FilePath "$env:LOGS_DIR\\generation.log"
+                            Write-Host "Requesting Claude to generate test cases..."
 
-                            cat > /tmp/generate_tests_${BUILD_NUMBER}.txt << PROMPT
+                            $promptPath = Join-Path $env:TEMP "generate_tests_$env:BUILD_NUMBER.txt"
+@"
 You are the jira-test-generator agent running locally.
 
-Task: Generate comprehensive test cases for Jira issue: ${JIRA_ISSUE}
+Task: Generate comprehensive test cases for Jira issue: $env:JIRA_ISSUE
 
 Instructions:
 1. Fetch the Jira issue details
@@ -115,34 +99,39 @@ For each test case include:
 - Test data (if applicable)
 
 Format the output as a markdown file suitable for manual testing.
-Save the file to: ${TEST_CASE_FILE}
+Save the file to: $env:TEST_CASE_FILE
 
 Start generating test cases now.
-PROMPT
+"@ | Out-File -FilePath $promptPath -Encoding utf8
 
-                            echo "Prompt created. Invoking Claude CLI..."
-                            cat /tmp/generate_tests_${BUILD_NUMBER}.txt >> ${LOGS_DIR}/generation.log
+                            Write-Host "Prompt created. Invoking Claude CLI..."
+                            Get-Content $promptPath | Add-Content -Path "$env:LOGS_DIR\\generation.log"
 
-                            claude-code --agent jira-test-generator "Generate test cases for ${JIRA_ISSUE}" >> ${LOGS_DIR}/generation.log 2>&1 || true
+                            try {
+                                claude-code --agent jira-test-generator "Generate test cases for $env:JIRA_ISSUE" *>> "$env:LOGS_DIR\\generation.log"
+                            } catch {
+                                Add-Content -Path "$env:LOGS_DIR\\generation.log" -Value "claude-code call failed or not found: $_"
+                            }
+                            $global:LASTEXITCODE = 0
 
-                            if [ -f "${TEST_CASE_FILE}" ]; then
-                                echo "Test cases generated successfully"
-                                echo "File: ${TEST_CASE_FILE}"
-                                wc -l ${TEST_CASE_FILE}
-                            else
-                                echo "Test case file not found. Checking for existing file..."
-                                if [ -f "${TEST_CASES_DIR}/${JIRA_ISSUE}-test-cases.md" ]; then
-                                    echo "Using existing test case file"
-                                else
-                                    echo "No test cases found. Proceeding with manual test cases..."
-                                fi
-                            fi
+                            if (Test-Path $env:TEST_CASE_FILE) {
+                                Write-Host "Test cases generated successfully"
+                                Write-Host "File: $env:TEST_CASE_FILE"
+                                Write-Host "Lines: $((Get-Content $env:TEST_CASE_FILE).Count)"
+                            } else {
+                                Write-Host "Test case file not found. Checking for existing file..."
+                                if (Test-Path $env:TEST_CASE_FILE) {
+                                    Write-Host "Using existing test case file"
+                                } else {
+                                    Write-Host "No test cases found. Proceeding with manual test cases..."
+                                }
+                            }
 
-                            rm -f /tmp/generate_tests_${BUILD_NUMBER}.txt
+                            Remove-Item $promptPath -Force -ErrorAction SilentlyContinue
                         '''
                     } catch (Exception e) {
                         echo "Test generation had issues, but continuing: ${e.message}"
-                        sh 'cat ${LOGS_DIR}/generation.log || true'
+                        powershell 'Get-Content "$env:LOGS_DIR\\generation.log" -ErrorAction SilentlyContinue'
                     }
                 }
             }
@@ -154,24 +143,28 @@ PROMPT
                     echo "Stage: Verify Test Cases"
                     echo "-------------------------------------------"
 
-                    sh '''
-                        if [ -f "${TEST_CASE_FILE}" ]; then
-                            echo "Test case file found: ${TEST_CASE_FILE}"
-                            echo ""
-                            echo "File size: $(stat -c%s ${TEST_CASE_FILE}) bytes"
-                            echo "Number of lines: $(wc -l < ${TEST_CASE_FILE})"
-                            echo ""
-                            echo "Preview (first 30 lines):"
-                            echo "---"
-                            head -n 30 "${TEST_CASE_FILE}"
-                            echo "---"
-                        else
-                            echo "Test case file not found!"
-                            echo "Expected: ${TEST_CASE_FILE}"
-                            echo "Available files:"
-                            ls -la ${TEST_CASES_DIR}/ || echo "Test cases directory not found"
+                    powershell '''
+                        if (Test-Path $env:TEST_CASE_FILE) {
+                            Write-Host "Test case file found: $env:TEST_CASE_FILE"
+                            Write-Host ""
+                            Write-Host "File size: $((Get-Item $env:TEST_CASE_FILE).Length) bytes"
+                            Write-Host "Number of lines: $((Get-Content $env:TEST_CASE_FILE).Count)"
+                            Write-Host ""
+                            Write-Host "Preview (first 30 lines):"
+                            Write-Host "---"
+                            Get-Content $env:TEST_CASE_FILE -TotalCount 30
+                            Write-Host "---"
+                        } else {
+                            Write-Host "Test case file not found!"
+                            Write-Host "Expected: $env:TEST_CASE_FILE"
+                            Write-Host "Available files:"
+                            if (Test-Path $env:TEST_CASES_DIR) {
+                                Get-ChildItem $env:TEST_CASES_DIR
+                            } else {
+                                Write-Host "Test cases directory not found"
+                            }
                             exit 1
-                        fi
+                        }
                     '''
                 }
             }
@@ -182,24 +175,24 @@ PROMPT
                 script {
                     echo "Stage: Execute Tests"
                     echo "-------------------------------------------"
-                    echo "Using manual-test-runner agent..."
                     echo "Test Cases: ${TEST_CASE_FILE}"
                     echo "Results: ${TEST_RESULT_FILE}"
 
-                    sh '''
-                        echo "Starting test execution..." > ${LOGS_DIR}/execution.log
-                        echo "Timestamp: $(date)" >> ${LOGS_DIR}/execution.log
-                        echo "App URL: ${APP_URL}" >> ${LOGS_DIR}/execution.log
-                        echo "" >> ${LOGS_DIR}/execution.log
+                    powershell '''
+                        "Starting test execution..." | Out-File -FilePath "$env:LOGS_DIR\\execution.log"
+                        "Timestamp: $(Get-Date)" | Add-Content -Path "$env:LOGS_DIR\\execution.log"
+                        "App URL: $env:APP_URL" | Add-Content -Path "$env:LOGS_DIR\\execution.log"
+                        "" | Add-Content -Path "$env:LOGS_DIR\\execution.log"
 
-                        cat > /tmp/execute_tests_${BUILD_NUMBER}.txt << PROMPT
+                        $promptPath = Join-Path $env:TEMP "execute_tests_$env:BUILD_NUMBER.txt"
+@"
 You are the manual-test-runner agent running locally.
 
 Task: Execute test cases and document results
 
 Instructions:
-1. Read the test cases from: ${TEST_CASE_FILE}
-2. Navigate to the application at: ${APP_URL}
+1. Read the test cases from: $env:TEST_CASE_FILE
+2. Navigate to the application at: $env:APP_URL
 3. Execute each test case step-by-step:
    - For each test, follow the steps exactly
    - Verify expected results match actual results
@@ -218,22 +211,26 @@ Output format - Create a markdown file with:
   - If FAIL: screenshot path and error description
 - Summary and recommendations
 
-Save results to: ${TEST_RESULT_FILE}
-Save evidence to: ${EVIDENCE_DIR}/
+Save results to: $env:TEST_RESULT_FILE
+Save evidence to: $env:EVIDENCE_DIR\\
 
 Start executing test cases now.
-PROMPT
+"@ | Out-File -FilePath $promptPath -Encoding utf8
 
-                        cat /tmp/execute_tests_${BUILD_NUMBER}.txt >> ${LOGS_DIR}/execution.log
+                        Get-Content $promptPath | Add-Content -Path "$env:LOGS_DIR\\execution.log"
 
-                        echo "Invoking Claude CLI with manual-test-runner agent..."
-                        claude-code --agent manual-test-runner "Execute all test cases from ${TEST_CASE_FILE} and save results to ${TEST_RESULT_FILE}" >> ${LOGS_DIR}/execution.log 2>&1 || true
+                        try {
+                            claude-code --agent manual-test-runner "Execute all test cases from $env:TEST_CASE_FILE and save results to $env:TEST_RESULT_FILE" *>> "$env:LOGS_DIR\\execution.log"
+                        } catch {
+                            Add-Content -Path "$env:LOGS_DIR\\execution.log" -Value "claude-code call failed or not found: $_"
+                        }
+                        $global:LASTEXITCODE = 0
 
-                        rm -f /tmp/execute_tests_${BUILD_NUMBER}.txt
+                        Remove-Item $promptPath -Force -ErrorAction SilentlyContinue
 
-                        echo ""
-                        echo "Test execution completed"
-                        echo "Execution log: ${LOGS_DIR}/execution.log"
+                        Write-Host ""
+                        Write-Host "Test execution completed"
+                        Write-Host "Execution log: $env:LOGS_DIR\\execution.log"
                     '''
                 }
             }
@@ -245,39 +242,39 @@ PROMPT
                     echo "Stage: Collect Results"
                     echo "-------------------------------------------"
 
-                    sh '''
-                        if [ -f "${TEST_RESULT_FILE}" ]; then
-                            echo "Test results file found"
-                            echo "File: ${TEST_RESULT_FILE}"
-                            echo "Size: $(stat -c%s ${TEST_RESULT_FILE}) bytes"
-                            echo ""
-                            echo "Results Preview:"
-                            echo "---"
-                            head -n 50 "${TEST_RESULT_FILE}"
-                            echo "---"
-                        else
-                            echo "Test results file not found at: ${TEST_RESULT_FILE}"
-                            echo "Creating placeholder results file..."
+                    powershell '''
+                        if (Test-Path $env:TEST_RESULT_FILE) {
+                            Write-Host "Test results file found"
+                            Write-Host "File: $env:TEST_RESULT_FILE"
+                            Write-Host "Size: $((Get-Item $env:TEST_RESULT_FILE).Length) bytes"
+                            Write-Host ""
+                            Write-Host "Results Preview:"
+                            Write-Host "---"
+                            Get-Content $env:TEST_RESULT_FILE -TotalCount 50
+                            Write-Host "---"
+                        } else {
+                            Write-Host "Test results file not found at: $env:TEST_RESULT_FILE"
+                            Write-Host "Creating placeholder results file..."
+                            $now = Get-Date
+@"
+# Test Results for $env:JIRA_ISSUE
 
-                            cat > "${TEST_RESULT_FILE}" << EOF
-# Test Results for ${JIRA_ISSUE}
-
-**Execution Time**: $(date)
+**Execution Time**: $now
 **Status**: Test execution in progress or pending
 
 ## Summary
 - Waiting for test execution to complete
-- Check logs for details: ${LOGS_DIR}/execution.log
-EOF
-                        fi
+- Check logs for details: $env:LOGS_DIR\\execution.log
+"@ | Out-File -FilePath $env:TEST_RESULT_FILE -Encoding utf8
+                        }
 
-                        echo ""
-                        echo "Files in results directory (${TEST_RESULTS_DIR}):"
-                        ls -lah ${TEST_RESULTS_DIR}/ || echo "Directory empty"
+                        Write-Host ""
+                        Write-Host "Files in results directory ($env:TEST_RESULTS_DIR):"
+                        if (Test-Path $env:TEST_RESULTS_DIR) { Get-ChildItem $env:TEST_RESULTS_DIR } else { Write-Host "Directory empty" }
 
-                        echo ""
-                        echo "Evidence files (${EVIDENCE_DIR}):"
-                        ls -lah ${EVIDENCE_DIR}/ || echo "No evidence files yet"
+                        Write-Host ""
+                        Write-Host "Evidence files ($env:EVIDENCE_DIR):"
+                        if (Test-Path $env:EVIDENCE_DIR) { Get-ChildItem $env:EVIDENCE_DIR } else { Write-Host "No evidence files yet" }
                     '''
                 }
             }
@@ -289,50 +286,49 @@ EOF
                     echo "Stage: Parse Metrics"
                     echo "-------------------------------------------"
 
-                    sh '''
-                        cat > ${TEST_RESULTS_DIR}/METRICS.txt << EOF
+                    powershell '''
+                        $metricsPath = Join-Path $env:TEST_RESULTS_DIR "METRICS.txt"
+                        $now = Get-Date
+@"
 =====================================
 TEST EXECUTION METRICS
 =====================================
-Build Number: ${BUILD_NUMBER}
-Job Name: ${JOB_NAME}
-Jira Issue: ${JIRA_ISSUE}
-Execution Date: $(date)
+Build Number: $env:BUILD_NUMBER
+Job Name: $env:JOB_NAME
+Jira Issue: $env:JIRA_ISSUE
+Execution Date: $now
 
 Test Execution Summary:
-EOF
+"@ | Out-File -FilePath $metricsPath -Encoding utf8
 
-                        if [ -f "${TEST_RESULT_FILE}" ]; then
-                            echo "Parsing test results..." >> ${TEST_RESULTS_DIR}/METRICS.txt
+                        if (Test-Path $env:TEST_RESULT_FILE) {
+                            Add-Content -Path $metricsPath -Value "Parsing test results..."
 
-                            PASSED=$(grep -c "PASS" "${TEST_RESULT_FILE}" || echo "0")
-                            FAILED=$(grep -c "FAIL" "${TEST_RESULT_FILE}" || echo "0")
-                            TOTAL=$((PASSED + FAILED))
+                            $content = Get-Content $env:TEST_RESULT_FILE
+                            $passed = ($content | Select-String "PASS").Count
+                            $failed = ($content | Select-String "FAIL").Count
+                            $total = $passed + $failed
+                            if ($total -gt 0) { $passRate = [math]::Round(($passed * 100) / $total) } else { $passRate = 0 }
 
-                            if [ $TOTAL -gt 0 ]; then
-                                PASS_RATE=$((PASSED * 100 / TOTAL))
-                            else
-                                PASS_RATE=0
-                            fi
+                            Add-Content -Path $metricsPath -Value ""
+                            Add-Content -Path $metricsPath -Value "Total Tests: $total"
+                            Add-Content -Path $metricsPath -Value "Passed: $passed"
+                            Add-Content -Path $metricsPath -Value "Failed: $failed"
+                            Add-Content -Path $metricsPath -Value "Pass Rate: $passRate%"
+                        }
 
-                            cat >> ${TEST_RESULTS_DIR}/METRICS.txt << EOF
+                        Add-Content -Path $metricsPath -Value ""
+                        Add-Content -Path $metricsPath -Value "Log Files:"
+                        if (Test-Path $env:LOGS_DIR) {
+                            Get-ChildItem $env:LOGS_DIR | Select-Object -ExpandProperty Name | Add-Content -Path $metricsPath
+                        } else {
+                            Add-Content -Path $metricsPath -Value "No logs"
+                        }
 
-Total Tests: ${TOTAL}
-Passed: ${PASSED}
-Failed: ${FAILED}
-Pass Rate: ${PASS_RATE}%
-
-EOF
-                        fi
-
-                        echo "" >> ${TEST_RESULTS_DIR}/METRICS.txt
-                        echo "Log Files:" >> ${TEST_RESULTS_DIR}/METRICS.txt
-                        ls -1 ${LOGS_DIR}/ >> ${TEST_RESULTS_DIR}/METRICS.txt 2>&1 || echo "No logs" >> ${TEST_RESULTS_DIR}/METRICS.txt
-
-                        echo "Metrics summary created"
-                        echo ""
-                        echo "Test Metrics:"
-                        cat ${TEST_RESULTS_DIR}/METRICS.txt
+                        Write-Host "Metrics summary created"
+                        Write-Host ""
+                        Write-Host "Test Metrics:"
+                        Get-Content $metricsPath
                     '''
                 }
             }
@@ -344,46 +340,38 @@ EOF
                     echo "Stage: Generate Report"
                     echo "-------------------------------------------"
 
-                    sh '''
-                        cat > ${TEST_RESULTS_DIR}/REPORT.html << EOF
+                    powershell '''
+                        $now = Get-Date
+                        $reportPath = Join-Path $env:TEST_RESULTS_DIR "REPORT.html"
+@"
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Test Report - ${JIRA_ISSUE}</title>
+    <title>Test Report - $env:JIRA_ISSUE</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
         .header { background: #2c3e50; color: white; padding: 20px; border-radius: 5px; }
         .section { background: white; margin: 20px 0; padding: 20px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-        .metric-card { background: #ecf0f1; padding: 15px; border-radius: 5px; text-align: center; }
-        .metric-value { font-size: 24px; font-weight: bold; color: #2c3e50; }
-        .metric-label { font-size: 12px; color: #7f8c8d; }
-        .pass { color: #27ae60; }
-        .fail { color: #e74c3c; }
-        table { width: 100%; border-collapse: collapse; }
-        th { background: #34495e; color: white; padding: 10px; text-align: left; }
-        td { padding: 10px; border-bottom: 1px solid #ecf0f1; }
-        tr:hover { background: #f9f9f9; }
         .footer { text-align: center; color: #7f8c8d; font-size: 12px; margin-top: 20px; }
     </style>
 </head>
 <body>
     <div class="header">
         <h1>Test Execution Report</h1>
-        <p>Jira Issue: ${JIRA_ISSUE} | Build: ${BUILD_NUMBER} | Date: $(date)</p>
+        <p>Jira Issue: $env:JIRA_ISSUE | Build: $env:BUILD_NUMBER | Date: $now</p>
     </div>
 
     <div class="section">
         <h2>Test Results</h2>
-        <p><a href="${TEST_RESULT_FILE}">View Detailed Results</a></p>
+        <p><a href="$env:TEST_RESULT_FILE">View Detailed Results</a></p>
         <p><a href="METRICS.txt">View Metrics</a></p>
     </div>
 
     <div class="section">
         <h2>Evidence and Logs</h2>
         <ul>
-            <li>Evidence: ${EVIDENCE_DIR}/</li>
-            <li>Logs: ${LOGS_DIR}/</li>
+            <li>Evidence: $env:EVIDENCE_DIR\\</li>
+            <li>Logs: $env:LOGS_DIR\\</li>
         </ul>
     </div>
 
@@ -392,9 +380,9 @@ EOF
     </div>
 </body>
 </html>
-EOF
+"@ | Out-File -FilePath $reportPath -Encoding utf8
 
-                        echo "Report generated: ${TEST_RESULTS_DIR}/REPORT.html"
+                        Write-Host "Report generated: $reportPath"
                     '''
                 }
             }
@@ -406,25 +394,24 @@ EOF
                     echo "Stage: Archive Results"
                     echo "-------------------------------------------"
 
-                    sh '''
-                        echo "Test Execution Summary"
-                        echo "========================================"
-                        echo "Jira Issue: ${JIRA_ISSUE}"
-                        echo "Build: ${BUILD_NUMBER}"
-                        echo "Results Location: ${TEST_RESULTS_DIR}"
-                        echo ""
-                        echo "Generated Files:"
-                        ls -lh ${TEST_RESULTS_DIR}/ | grep -v "^total" || true
-                        echo ""
-                        echo "Artifacts:"
-                        echo "  - Test Cases: ${TEST_CASE_FILE}"
-                        echo "  - Test Results: ${TEST_RESULT_FILE}"
-                        echo "  - Metrics: ${TEST_RESULTS_DIR}/METRICS.txt"
-                        echo "  - Report: ${TEST_RESULTS_DIR}/REPORT.html"
-                        echo "  - Evidence: ${EVIDENCE_DIR}/"
-                        echo "  - Logs: ${LOGS_DIR}/"
-                        echo ""
-                        echo "All results stored in: ${TEST_RESULTS_DIR}"
+                    powershell '''
+                        Write-Host "Test Execution Summary"
+                        Write-Host "========================================"
+                        Write-Host "Jira Issue: $env:JIRA_ISSUE"
+                        Write-Host "Build: $env:BUILD_NUMBER"
+                        Write-Host "Results Location: $env:TEST_RESULTS_DIR"
+                        Write-Host ""
+                        Write-Host "Generated Files:"
+                        Get-ChildItem $env:TEST_RESULTS_DIR | Format-Table Name, Length -AutoSize | Out-String | Write-Host
+                        Write-Host "Artifacts:"
+                        Write-Host "  - Test Cases: $env:TEST_CASE_FILE"
+                        Write-Host "  - Test Results: $env:TEST_RESULT_FILE"
+                        Write-Host "  - Metrics: $env:TEST_RESULTS_DIR\\METRICS.txt"
+                        Write-Host "  - Report: $env:TEST_RESULTS_DIR\\REPORT.html"
+                        Write-Host "  - Evidence: $env:EVIDENCE_DIR\\"
+                        Write-Host "  - Logs: $env:LOGS_DIR\\"
+                        Write-Host ""
+                        Write-Host "All results stored in: $env:TEST_RESULTS_DIR"
                     '''
                 }
             }
@@ -439,8 +426,6 @@ EOF
                 echo "PIPELINE SUMMARY"
                 echo "=========================================="
                 echo "Build Number: ${BUILD_NUMBER}"
-                // FIX: currentBuild.result is null while the build is still in
-                // progress/successful; currentBuild.currentResult is always set.
                 echo "Status: ${currentBuild.currentResult}"
                 echo "Duration: ${currentBuild.durationString}"
                 echo "Results: ${TEST_RESULTS_DIR}"
@@ -451,22 +436,18 @@ EOF
         }
 
         success {
-            script {
-                sh '''
-                    echo "Build completed successfully" >> ${TEST_RESULTS_DIR}/BUILD_STATUS.txt
-                    echo "Time: $(date)" >> ${TEST_RESULTS_DIR}/BUILD_STATUS.txt
-                '''
-            }
+            powershell '''
+                Add-Content -Path "$env:TEST_RESULTS_DIR\\BUILD_STATUS.txt" -Value "Build completed successfully"
+                Add-Content -Path "$env:TEST_RESULTS_DIR\\BUILD_STATUS.txt" -Value "Time: $(Get-Date)"
+            '''
         }
 
         failure {
-            script {
-                sh '''
-                    echo "Build failed" >> ${TEST_RESULTS_DIR}/BUILD_STATUS.txt
-                    echo "Time: $(date)" >> ${TEST_RESULTS_DIR}/BUILD_STATUS.txt
-                    echo "Check logs: ${LOGS_DIR}/" >> ${TEST_RESULTS_DIR}/BUILD_STATUS.txt
-                '''
-            }
+            powershell '''
+                Add-Content -Path "$env:TEST_RESULTS_DIR\\BUILD_STATUS.txt" -Value "Build failed"
+                Add-Content -Path "$env:TEST_RESULTS_DIR\\BUILD_STATUS.txt" -Value "Time: $(Get-Date)"
+                Add-Content -Path "$env:TEST_RESULTS_DIR\\BUILD_STATUS.txt" -Value "Check logs: $env:LOGS_DIR\\"
+            '''
         }
 
         cleanup {
