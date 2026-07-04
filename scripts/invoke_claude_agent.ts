@@ -11,6 +11,7 @@ interface AgentOptions {
   jiraIssue?: string;
   appUrl?: string;
   testCaseFile?: string;
+  selectedTestCase?: string;
   outputFile: string;
 }
 
@@ -65,35 +66,59 @@ Start generating now.`;
 // Test execution prompt
 async function executeTestCases(
   testCaseFile: string,
-  appUrl: string
+  appUrl: string,
+  selectedTestCase?: string
 ): Promise<string> {
-  console.log(`[Agent] Executing test cases from ${testCaseFile}...`);
+  console.log(
+    `[Agent] Executing test case: ${selectedTestCase} from ${testCaseFile}...`
+  );
 
   // Read test case file
-  const testCaseContent = fs.readFileSync(testCaseFile, "utf-8");
+  const fullContent = fs.readFileSync(testCaseFile, "utf-8");
+
+  // Extract only the selected test case if specified
+  let testCaseContent = fullContent;
+  if (selectedTestCase) {
+    // Extract the specific test case (e.g., TC-001)
+    const testCasePattern = new RegExp(
+      `## ${selectedTestCase}:.*?(?=## TC-\\d+:|$)`,
+      "is"
+    );
+    const match = fullContent.match(testCasePattern);
+    if (match) {
+      testCaseContent = match[0];
+      console.log(`[Agent] Extracted test case: ${selectedTestCase}`);
+    } else {
+      console.warn(
+        `[Agent] Could not extract ${selectedTestCase}, using full file`
+      );
+    }
+  }
 
   const prompt = `You are the manual-test-runner agent.
 
-Execute the test cases and document results.
+Execute ONLY the following test case and document results.
 
 Application: ${appUrl}
 Test User: neuralqaacademy@gmail.com / Tester@123
 
-Test Cases:
+Test Case to Execute:
 \`\`\`
 ${testCaseContent}
 \`\`\`
 
-Follow each test step:
-1. Navigate the application
-2. Execute each step exactly as described
+Instructions:
+1. Execute ONLY this ONE test case - do not execute other tests
+2. Follow each test step exactly as described
 3. Document: Pass or Fail for each step
-4. Take screenshots only if test fails
-5. Document actual vs expected results
+4. Navigate the application and verify expected results
+5. Take screenshots only if test fails
+6. Document actual vs expected results
 
 Output results in markdown format with:
 - Test case ID and title
 - Status: PASS or FAIL
+- Step-by-step results
 - Observations
 - Any failures with evidence
 
@@ -154,6 +179,9 @@ function parseArgs(): AgentOptions {
       case "test-case-file":
         options.testCaseFile = value;
         break;
+      case "selected-test-case":
+        options.selectedTestCase = value;
+        break;
       case "output-file":
         options.outputFile = value;
         break;
@@ -203,7 +231,11 @@ async function main(): Promise<void> {
         process.exit(1);
       }
 
-      content = await executeTestCases(options.testCaseFile, options.appUrl);
+      content = await executeTestCases(
+        options.testCaseFile,
+        options.appUrl,
+        options.selectedTestCase
+      );
       await saveContent(content, options.outputFile);
       console.log("✅ Test execution complete");
     } else {

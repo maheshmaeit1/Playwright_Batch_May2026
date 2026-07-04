@@ -207,10 +207,11 @@ pipeline {
                         Push-Location $scriptDir
 
                         # Run TypeScript agent via ts-node
-                        Write-Host "Invoking manual-test-runner agent..."
+                        Write-Host "Invoking manual-test-runner agent for $env:SELECTED_TEST_CASE..."
                         npx ts-node invoke_claude_agent.ts --action execute `
                             --test-case-file $env:TEST_CASE_FILE `
                             --app-url $env:APP_URL `
+                            --selected-test-case $env:SELECTED_TEST_CASE `
                             --output-file $env:TEST_RESULT_FILE
 
                         Pop-Location
