@@ -163,17 +163,31 @@ pipeline {
                     // Extract test case names from markdown file
                     def testCases = powershell(script: '''
                         $content = Get-Content $env:TEST_CASE_FILE -Raw
-                        $matches = [regex]::Matches($content, '## Test Case: \\[(TC-\\d+)\\]\\s*(.+?)(?=\\n|$)')
+
+                        # Extract test cases using regex pattern
+                        $pattern = '## Test Case: \[(TC-\d+)\]\s+(.+?)(?=\n|$)'
+                        $regex = [regex]::new($pattern, [System.Text.RegularExpressions.RegexOptions]::Multiline)
+                        $matches = $regex.Matches($content)
+
+                        Write-Host "Found $($matches.Count) test cases"
+
                         $testCases = @()
                         foreach ($match in $matches) {
                             $tcId = $match.Groups[1].Value
                             $tcTitle = $match.Groups[2].Value.Trim()
-                            $testCases += "$tcId - $tcTitle"
+                            $testCase = "$tcId - $tcTitle"
+                            Write-Host "  - $testCase"
+                            $testCases += $testCase
                         }
+
                         if ($testCases.Count -eq 0) {
-                            Write-Host "No test cases found"
+                            Write-Host "ERROR: No test cases found in $env:TEST_CASE_FILE"
+                            Write-Host "File size: $((Get-Item $env:TEST_CASE_FILE).Length) bytes"
+                            Write-Host "First 500 chars:"
+                            Write-Host $content.Substring(0, [Math]::Min(500, $content.Length))
                             exit 1
                         }
+
                         $testCases -join ","
                     ''', returnStdout: true).trim().split(',')
 
@@ -184,12 +198,12 @@ pipeline {
 
                     // Ask user to select test case
                     def selectedTest = input(
-                        message: 'Select which test case to run (enter number)',
+                        message: 'Select which test case to run',
                         parameters: [
                             choice(
                                 name: 'TEST_SELECTION',
                                 choices: testCases,
-                                description: 'Choose a test case'
+                                description: 'Choose a test case to execute'
                             )
                         ]
                     )
