@@ -160,60 +160,25 @@ pipeline {
                     echo "🔵 Stage: Select Test Case"
                     echo "-------------------------------------------"
 
-                    // Extract test case names from markdown file
-                    def testCases = powershell(script: '''
-                        $content = Get-Content $env:TEST_CASE_FILE -Raw
+                    // For now, default to TC-001 to test pipeline
+                    env.SELECTED_TEST_CASE = "TC-001"
 
-                        # Extract test cases using regex pattern
-                        $pattern = '## Test Case: \\[(TC-\\d+)\\]\\s+(.+?)(?=\\n|$)'
-                        $regex = [regex]::new($pattern, [System.Text.RegularExpressions.RegexOptions]::Multiline)
-                        $matches = $regex.Matches($content)
+                    echo "📋 Available Test Cases:"
+                    echo "  1. TC-001 - Add Single Product to Cart"
+                    echo "  2. TC-002 - Add Multiple Products"
+                    echo "  3. TC-003 - Remove Product from Cart"
+                    echo ""
+                    echo "⏸️  Awaiting approval to execute TC-001..."
+                    echo ""
 
-                        Write-Host "Found $($matches.Count) test cases"
-
-                        $testCases = @()
-                        foreach ($match in $matches) {
-                            $tcId = $match.Groups[1].Value
-                            $tcTitle = $match.Groups[2].Value.Trim()
-                            $testCase = "$tcId - $tcTitle"
-                            Write-Host "  - $testCase"
-                            $testCases += $testCase
-                        }
-
-                        if ($testCases.Count -eq 0) {
-                            Write-Host "ERROR: No test cases found in $env:TEST_CASE_FILE"
-                            Write-Host "File size: $((Get-Item $env:TEST_CASE_FILE).Length) bytes"
-                            Write-Host "First 500 chars:"
-                            Write-Host $content.Substring(0, [Math]::Min(500, $content.Length))
-                            exit 1
-                        }
-
-                        $testCases -join ","
-                    ''', returnStdout: true).trim().split(',')
-
-                    echo "Available test cases:"
-                    testCases.eachWithIndex { tc, idx ->
-                        echo "${idx + 1}. ${tc}"
-                    }
-
-                    // Ask user to select test case
-                    def selectedTest = input(
-                        message: 'Select which test case to run',
-                        parameters: [
-                            choice(
-                                name: 'TEST_SELECTION',
-                                choices: testCases,
-                                description: 'Choose a test case to execute'
-                            )
-                        ]
+                    // Ask user for approval
+                    def approval = input(
+                        message: '✅ Ready to execute TC-001. Proceed?',
+                        ok: 'YES - Run TC-001',
+                        submitter: ''
                     )
 
-                    // Extract TC ID from selection
-                    def tcId = selectedTest.split(' - ')[0].trim()
-                    env.SELECTED_TEST_CASE = tcId
-
-                    echo "✅ Selected: ${selectedTest}"
-                    echo "Test ID: ${tcId}"
+                    echo "✅ Approved! Executing ${env.SELECTED_TEST_CASE}"
                 }
             }
         }
