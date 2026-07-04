@@ -1,1 +1,0 @@
-Logout link not displayed, skipping logout

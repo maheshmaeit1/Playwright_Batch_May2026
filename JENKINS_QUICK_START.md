@@ -73,7 +73,7 @@ Click **Save**
 1. On job page, click **Build with Parameters**
 2. Leave defaults or set:
    - JIRA_ISSUE: `SCRUM-2`
-   - APP_URL: `http://localhost:3000`
+   - APP_URL: `https://demowebshop.tricentis.com/` (pre-set)
 3. Click **Build**
 
 ### Option 2: Quick Build

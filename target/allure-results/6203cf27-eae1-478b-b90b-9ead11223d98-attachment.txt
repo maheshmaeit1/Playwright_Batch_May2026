@@ -1,1 +1,0 @@
-C:\Users\mahes\Desktop\NeuralQA\Playwright_Batch_27_April\Wokspace\Playwright_POM_Framework\tests\loginTest.spec.ts-snapshots\Login-test-case-for-app--1-1-chromium-win32.png is re-generated, writing actual.

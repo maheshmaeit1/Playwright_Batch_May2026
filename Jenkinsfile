@@ -3,7 +3,7 @@ pipeline {
 
     parameters {
         string(name: 'JIRA_ISSUE', defaultValue: 'SCRUM-2', description: 'Jira issue key to test (e.g., SCRUM-2)')
-        string(name: 'APP_URL', defaultValue: 'http://localhost:3000', description: 'Application URL to test')
+        string(name: 'APP_URL', defaultValue: 'https://demowebshop.tricentis.com/', description: 'Application URL to test')
         booleanParam(name: 'SKIP_TEST_GENERATION', defaultValue: false, description: 'Skip test generation (use existing test cases)')
     }
 
