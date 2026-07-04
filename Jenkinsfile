@@ -10,6 +10,7 @@ pipeline {
     environment {
         JIRA_ISSUE = "${params.JIRA_ISSUE}"
         APP_URL    = "${params.APP_URL}"
+        ANTHROPIC_API_KEY = credentials('anthropic-api-key')
 
         PROJECT_DIR = "${WORKSPACE}"
         TEST_CASES_DIR = "${WORKSPACE}/manual-testing/test-cases"
