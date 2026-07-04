@@ -64,74 +64,65 @@ pipeline {
             }
             steps {
                 script {
-                    echo "Stage: Generate Test Cases"
+                    echo "🟣 Stage: Generate Test Cases"
                     echo "-------------------------------------------"
                     echo "Issue: ${JIRA_ISSUE}"
                     echo "Output: ${TEST_CASE_FILE}"
 
                     try {
                         powershell '''
-                            "Generating test cases for $env:JIRA_ISSUE..." | Out-File -FilePath "$env:LOGS_DIR\\generation.log"
-                            Write-Host "Requesting Claude to generate test cases..."
+                            Write-Host "Invoking jira-test-generator agent via Claude Code..."
 
-                            $promptPath = Join-Path $env:TEMP "generate_tests_$env:BUILD_NUMBER.txt"
-@"
-You are the jira-test-generator agent running locally.
+                            # Create output directory
+                            New-Item -ItemType Directory -Force -Path (Split-Path $env:TEST_CASE_FILE) | Out-Null
 
-Task: Generate comprehensive test cases for Jira issue: $env:JIRA_ISSUE
+                            # Invoke Claude Code with jira-test-generator agent
+                            $prompt = @"
+Generate comprehensive manual test cases for SCRUM-2: Product Search Functionality
 
-Instructions:
-1. Fetch the Jira issue details
-2. Analyze the requirements and acceptance criteria
-3. Generate 5-10 detailed test cases that cover:
-   - Happy path scenarios (normal user workflow)
-   - Edge cases and boundary conditions
-   - Error handling and validation
-   - User interface elements
-   - Data persistence
+Application: $env:APP_URL
+Test User: neuralqaacademy@gmail.com / Tester@123
 
-For each test case include:
-- Clear title describing what is being tested
-- Objective statement
-- Preconditions (what needs to be set up)
-- Numbered test steps (specific actions)
-- Expected results (what should happen)
-- Test data (if applicable)
+Requirements:
+- Search for "Computer" keyword
+- Verify search results load
+- Verify "Simple Computer" product present in list
 
-Format the output as a markdown file suitable for manual testing.
-Save the file to: $env:TEST_CASE_FILE
+Create detailed test case(s) in markdown format:
+- Test case title (TC-XXX)
+- Objective
+- Preconditions
+- Numbered test steps (plain language, no code)
+- Expected results
+- Test data
 
-Start generating test cases now.
-"@ | Out-File -FilePath $promptPath -Encoding utf8
+Save to: $env:TEST_CASE_FILE
+"@
 
-                            Write-Host "Prompt created. Invoking Claude CLI..."
-                            Get-Content $promptPath | Add-Content -Path "$env:LOGS_DIR\\generation.log"
+                            Write-Host "Sending request to Claude..."
+                            & claude-code --agent jira-test-generator $prompt
 
-                            try {
-                                claude-code --agent jira-test-generator "Generate test cases for $env:JIRA_ISSUE" *>> "$env:LOGS_DIR\\generation.log"
-                            } catch {
-                                Add-Content -Path "$env:LOGS_DIR\\generation.log" -Value "claude-code call failed or not found: $_"
-                            }
-                            $global:LASTEXITCODE = 0
+                            # Check if file was created
+                            Start-Sleep -Seconds 2
 
                             if (Test-Path $env:TEST_CASE_FILE) {
-                                Write-Host "Test cases generated successfully"
+                                Write-Host "✅ Test cases generated successfully"
                                 Write-Host "File: $env:TEST_CASE_FILE"
-                                Write-Host "Lines: $((Get-Content $env:TEST_CASE_FILE).Count)"
-                            } else {
-                                Write-Host "Test case file not found. Checking for existing file..."
-                                if (Test-Path $env:TEST_CASE_FILE) {
-                                    Write-Host "Using existing test case file"
-                                } else {
-                                    Write-Host "No test cases found. Proceeding with manual test cases..."
-                                }
-                            }
+                                $fileSize = (Get-Item $env:TEST_CASE_FILE).Length
+                                Write-Host "Size: $fileSize bytes"
 
-                            Remove-Item $promptPath -Force -ErrorAction SilentlyContinue
+                                # Show preview
+                                Write-Host ""
+                                Write-Host "Preview (first 20 lines):"
+                                Get-Content $env:TEST_CASE_FILE -TotalCount 20
+                            } else {
+                                Write-Host "⚠️  Test case file not created by agent"
+                                Write-Host "Expected: $env:TEST_CASE_FILE"
+                            }
                         '''
                     } catch (Exception e) {
-                        echo "Test generation had issues, but continuing: ${e.message}"
-                        powershell 'Get-Content "$env:LOGS_DIR\\generation.log" -ErrorAction SilentlyContinue'
+                        echo "⚠️  Test generation warning: ${e.message}"
+                        echo "Continuing with existing test cases if available..."
                     }
                 }
             }
@@ -173,12 +164,13 @@ Start generating test cases now.
         stage('Execute Tests') {
             steps {
                 script {
-                    echo "Stage: Execute Tests"
+                    echo "🔵 Stage: Execute Tests"
                     echo "-------------------------------------------"
                     echo "Test Cases: ${TEST_CASE_FILE}"
                     echo "Results: ${TEST_RESULT_FILE}"
 
-                    powershell '''
+                    try {
+                        powershell '''
                         "Starting test execution..." | Out-File -FilePath "$env:LOGS_DIR\\execution.log"
                         "Timestamp: $(Get-Date)" | Add-Content -Path "$env:LOGS_DIR\\execution.log"
                         "App URL: $env:APP_URL" | Add-Content -Path "$env:LOGS_DIR\\execution.log"
@@ -219,19 +211,43 @@ Start executing test cases now.
 
                         Get-Content $promptPath | Add-Content -Path "$env:LOGS_DIR\\execution.log"
 
-                        try {
-                            claude-code --agent manual-test-runner "Execute all test cases from $env:TEST_CASE_FILE and save results to $env:TEST_RESULT_FILE" *>> "$env:LOGS_DIR\\execution.log"
-                        } catch {
-                            Add-Content -Path "$env:LOGS_DIR\\execution.log" -Value "claude-code call failed or not found: $_"
+                        Write-Host "Invoking manual-test-runner agent via Claude Code..."
+
+                        & claude-code --agent manual-test-runner @"
+Execute all test cases from: $env:TEST_CASE_FILE
+
+Application: $env:APP_URL
+Test User: neuralqaacademy@gmail.com / Tester@123
+
+Execute each test case step-by-step:
+1. Follow the test steps exactly
+2. Document PASS or FAIL for each step
+3. Take screenshots only if test fails
+4. Document actual vs expected results
+
+Save results to: $env:TEST_RESULT_FILE
+
+Output in markdown format with:
+- Test case ID and title
+- Status (PASS or FAIL)
+- Observations and findings
+"@
+
+                        Start-Sleep -Seconds 2
+
+                        if (Test-Path $env:TEST_RESULT_FILE) {
+                            Write-Host "✅ Test results saved successfully"
+                            Write-Host "File: $env:TEST_RESULT_FILE"
+                        } else {
+                            Write-Host "⚠️  Results file not created"
                         }
-                        $global:LASTEXITCODE = 0
 
                         Remove-Item $promptPath -Force -ErrorAction SilentlyContinue
-
-                        Write-Host ""
-                        Write-Host "Test execution completed"
-                        Write-Host "Execution log: $env:LOGS_DIR\\execution.log"
                     '''
+                    } catch (Exception e) {
+                        echo "⚠️  Test execution warning: ${e.message}"
+                        echo "Check logs for details..."
+                    }
                 }
             }
         }
