@@ -165,7 +165,7 @@ pipeline {
                         $content = Get-Content $env:TEST_CASE_FILE -Raw
 
                         # Extract test cases using regex pattern
-                        $pattern = '## Test Case: \[(TC-\d+)\]\s+(.+?)(?=\n|$)'
+                        $pattern = '## Test Case: \\[(TC-\\d+)\\]\\s+(.+?)(?=\\n|$)'
                         $regex = [regex]::new($pattern, [System.Text.RegularExpressions.RegexOptions]::Multiline)
                         $matches = $regex.Matches($content)
 
