@@ -26,7 +26,9 @@ export function loadAgent(agentName: string): LoadedAgent {
 
   const raw = fs.readFileSync(agentFile, "utf-8");
 
-  const frontmatterMatch = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+  // Tolerate both LF and CRLF line endings: a git checkout on Windows
+  // (autocrlf) rewrites the agent .md to \r\n, which a \n-only regex misses.
+  const frontmatterMatch = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
   if (!frontmatterMatch) {
     throw new Error(`Could not parse frontmatter in ${agentFile}`);
   }

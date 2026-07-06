@@ -200,18 +200,16 @@ pipeline {
                         "Selected Test: $env:SELECTED_TEST_CASE" | Add-Content -Path "$env:LOGS_DIR\\execution.log"
                         "" | Add-Content -Path "$env:LOGS_DIR\\execution.log"
 
-                        Write-Host "Executing tests via TypeScript Agent..."
+                        Write-Host "Executing $env:SELECTED_TEST_CASE via local-test-runner..."
 
-                        # Change to scripts directory and run agent
+                        # Change to scripts directory and run agent (non-interactive, headless)
                         $scriptDir = Join-Path $env:PROJECT_DIR "scripts"
                         Push-Location $scriptDir
 
-                        # Run TypeScript agent via ts-node
-                        Write-Host "Invoking manual-test-runner agent for $env:SELECTED_TEST_CASE..."
-                        npx ts-node invoke_claude_agent.ts --action execute `
-                            --test-case-file $env:TEST_CASE_FILE `
+                        npx ts-node local-test-runner.ts `
+                            --test-file $env:TEST_CASE_FILE `
                             --app-url $env:APP_URL `
-                            --selected-test-case $env:SELECTED_TEST_CASE `
+                            --test-id $env:SELECTED_TEST_CASE `
                             --output-file $env:TEST_RESULT_FILE
 
                         Pop-Location
@@ -224,8 +222,6 @@ pipeline {
                         } else {
                             Write-Host "⚠️  Results file not created"
                         }
-
-                        Remove-Item $promptPath -Force -ErrorAction SilentlyContinue
                     '''
                     } catch (Exception e) {
                         echo "⚠️  Test execution warning: ${e.message}"

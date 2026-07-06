@@ -36,6 +36,14 @@ pipeline {
 
                     powershell '''
                         New-Item -ItemType Directory -Force -Path $env:TEST_CASES_DIR | Out-Null
+
+                        # Remove any stale output from a previous run so a failed
+                        # generation cannot be mistaken for success on the leftover file.
+                        if (Test-Path $env:TEST_CASE_FILE) {
+                            Remove-Item -Force $env:TEST_CASE_FILE
+                            Write-Host "Removed stale test case file: $env:TEST_CASE_FILE"
+                        }
+
                         Write-Host "Ready. Test cases will be written to: $env:TEST_CASES_DIR"
                     '''
                 }
@@ -62,8 +70,14 @@ pipeline {
                             --jira-issue $env:JIRA_ISSUE `
                             --app-url $env:APP_URL `
                             --output-file $env:TEST_CASE_FILE
+                        $genExit = $LASTEXITCODE
 
                         Pop-Location
+
+                        if ($genExit -ne 0) {
+                            Write-Host "Generation script exited with code $genExit"
+                            exit $genExit
+                        }
 
                         if (-not (Test-Path $env:TEST_CASE_FILE)) {
                             Write-Host "Test case file was not created: $env:TEST_CASE_FILE"
