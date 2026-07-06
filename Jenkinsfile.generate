@@ -1,0 +1,103 @@
+pipeline {
+    agent any
+
+    parameters {
+        string(name: 'JIRA_ISSUE', defaultValue: 'SCRUM-2', description: 'Jira issue key to generate test cases for (e.g., SCRUM-2)')
+        string(name: 'APP_URL', defaultValue: 'https://demowebshop.tricentis.com/', description: 'Application URL under test')
+    }
+
+    environment {
+        JIRA_ISSUE = "${params.JIRA_ISSUE}"
+        APP_URL    = "${params.APP_URL}"
+
+        PROJECT_DIR    = "${WORKSPACE}"
+        TEST_CASES_DIR = "${WORKSPACE}/manual-testing/test-cases"
+        TEST_CASE_FILE = "${WORKSPACE}/manual-testing/test-cases/${JIRA_ISSUE}-test-cases.md"
+    }
+
+    options {
+        timestamps()
+        timeout(time: 30, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+    }
+
+    stages {
+        stage('Initialize') {
+            steps {
+                script {
+                    echo "=========================================="
+                    echo "Jira Test Case Generation"
+                    echo "=========================================="
+                    echo "Build Number: ${BUILD_NUMBER}"
+                    echo "Jira Issue:   ${JIRA_ISSUE}"
+                    echo "App URL:      ${APP_URL}"
+                    echo "Output File:  ${TEST_CASE_FILE}"
+                    echo "=========================================="
+
+                    powershell '''
+                        New-Item -ItemType Directory -Force -Path $env:TEST_CASES_DIR | Out-Null
+                        Write-Host "Ready. Test cases will be written to: $env:TEST_CASES_DIR"
+                    '''
+                }
+            }
+        }
+
+        stage('Generate Test Cases') {
+            steps {
+                script {
+                    echo "🟣 Stage: Generate Test Cases"
+                    echo "-------------------------------------------"
+
+                    powershell '''
+                        $scriptDir = Join-Path $env:PROJECT_DIR "scripts"
+                        Push-Location $scriptDir
+
+                        if (-not (Test-Path "node_modules")) {
+                            Write-Host "Installing dependencies..."
+                            npm install
+                        }
+
+                        Write-Host "Invoking jira-test-generator agent (single shot, no retry)..."
+                        npx ts-node local-test-generator.ts `
+                            --jira-issue $env:JIRA_ISSUE `
+                            --app-url $env:APP_URL `
+                            --output-file $env:TEST_CASE_FILE
+
+                        Pop-Location
+
+                        if (-not (Test-Path $env:TEST_CASE_FILE)) {
+                            Write-Host "Test case file was not created: $env:TEST_CASE_FILE"
+                            exit 1
+                        }
+
+                        Write-Host ""
+                        Write-Host "Test cases generated: $env:TEST_CASE_FILE"
+                        Write-Host "Size: $((Get-Item $env:TEST_CASE_FILE).Length) bytes"
+                        Write-Host ""
+                        Write-Host "Preview (first 30 lines):"
+                        Write-Host "---"
+                        Get-Content $env:TEST_CASE_FILE -TotalCount 30
+                        Write-Host "---"
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            script {
+                echo ""
+                echo "=========================================="
+                echo "GENERATION SUMMARY"
+                echo "=========================================="
+                echo "Jira Issue: ${JIRA_ISSUE}"
+                echo "Status:     ${currentBuild.currentResult}"
+                echo "Output:     ${TEST_CASE_FILE}"
+                echo "=========================================="
+
+                archiveArtifacts artifacts: 'manual-testing/test-cases/*.md', allowEmptyArchive: true
+            }
+        }
+    }
+}

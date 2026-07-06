@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import * as fs from "fs";
 import * as path from "path";
+import { execSync } from "child_process";
 
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -15,7 +16,7 @@ interface AgentOptions {
   outputFile: string;
 }
 
-// Test case generation prompt
+// Test case generation via API
 async function generateTestCases(
   jiraIssue: string,
   appUrl: string
@@ -40,8 +41,6 @@ Each test case should include:
 - Test data
 
 Format as professional markdown documentation ONLY.
-
-DO NOT ask for permission or confirmation. Write the markdown content directly.
 Start generating now.`;
 
   const response = await client.messages.create({
@@ -63,14 +62,14 @@ Start generating now.`;
   return textBlock.text;
 }
 
-// Test execution prompt
+// Test execution via Claude CLI (has browser tools)
 async function executeTestCases(
   testCaseFile: string,
   appUrl: string,
   selectedTestCase?: string
 ): Promise<string> {
   console.log(
-    `[Agent] Executing test case: ${selectedTestCase} from ${testCaseFile}...`
+    `[Agent] Executing test case: ${selectedTestCase} via Claude CLI...`
   );
 
   // Read test case file
@@ -95,9 +94,13 @@ async function executeTestCases(
     }
   }
 
-  const prompt = `You are the manual-test-runner agent.
+  // Create a temporary prompt file
+  const promptFile = path.join(
+    process.env.TEMP || "/tmp",
+    `execute_test_${Date.now()}.txt`
+  );
 
-Execute ONLY the following test case and document results.
+  const prompt = `Execute ONLY the following test case and document results.
 
 Application: ${appUrl}
 Test User: neuralqaacademy@gmail.com / Tester@123
@@ -110,8 +113,8 @@ ${testCaseContent}
 Instructions:
 1. Execute ONLY this ONE test case - do not execute other tests
 2. Follow each test step exactly as described
-3. Document: Pass or Fail for each step
-4. Navigate the application and verify expected results
+3. Navigate the application and verify expected results
+4. Document: Pass or Fail for each step
 5. Take screenshots only if test fails
 6. Document actual vs expected results
 
@@ -122,26 +125,34 @@ Output results in markdown format with:
 - Observations
 - Any failures with evidence
 
-DO NOT ask for permission or confirmation. Write the markdown content directly.
 Start executing now.`;
 
-  const response = await client.messages.create({
-    model: "claude-sonnet-5",
-    max_tokens: 4096,
-    messages: [
+  fs.writeFileSync(promptFile, prompt, "utf-8");
+
+  try {
+    // Invoke Claude CLI with manual-test-runner agent (has browser tools)
+    console.log("Invoking manual-test-runner agent via CLI...");
+    const result = execSync(
+      `claude --agent manual-test-runner "${prompt}"`,
       {
-        role: "user",
-        content: prompt,
-      },
-    ],
-  });
+        encoding: "utf-8",
+        maxBuffer: 10 * 1024 * 1024, // 10MB buffer
+      }
+    );
 
-  const textBlock = response.content.find((block) => block.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw new Error("No text content in response");
+    return result;
+  } catch (error) {
+    console.error(
+      "CLI execution error:",
+      error instanceof Error ? error.message : String(error)
+    );
+    throw error;
+  } finally {
+    // Clean up temp file
+    try {
+      fs.unlinkSync(promptFile);
+    } catch {}
   }
-
-  return textBlock.text;
 }
 
 // Save content to file

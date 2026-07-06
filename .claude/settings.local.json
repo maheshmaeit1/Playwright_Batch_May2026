@@ -2,9 +2,20 @@
   "permissions": {
     "allow": [
       "mcp__atlassian__editJiraIssue",
+      "mcp__atlassian__getJiraIssue",
+      "mcp__atlassian__searchJiraIssuesUsingJql",
+      "mcp__atlassian__getVisibleJiraProjects",
+      "mcp__atlassian__getJiraProjectIssueTypesMetadata",
+      "mcp__atlassian__getAccessibleAtlassianResources",
       "mcp__playwright-test__browser_snapshot",
       "mcp__playwright-test__browser_navigate",
-      "mcp__playwright-test__browser_console_messages"
+      "mcp__playwright-test__browser_console_messages",
+      "Bash(npx ts-node *)",
+      "Bash(find . -iname \"SCRUM-2-test-cases.md\" -not -path \"*/node_modules/*\")",
+      "Bash(ls -la manual-testing/test-cases/)",
+      "Bash(ls -la scripts/manual-testing)",
+      "Bash(claude --print --agent jira-test-generator --allowedTools \"mcp__atlassian__getJiraIssue\")",
+      "Bash(claude --print --allowedTools \"mcp__atlassian__getJiraIssue,mcp__atlassian__getAccessibleAtlassianResources,mcp__atlassian__searchJiraIssuesUsingJql,mcp__atlassian__getVisibleJiraProjects,mcp__atlassian__getJiraProjectIssueTypesMetadata\")"
     ]
   },
   "enabledMcpjsonServers": [

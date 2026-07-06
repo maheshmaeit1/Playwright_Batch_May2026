@@ -2,7 +2,6 @@
   "name": "qa-automation-agents",
   "version": "1.0.0",
   "description": "TypeScript agents for test generation and execution",
-  "type": "module",
   "main": "invoke_claude_agent.ts",
   "scripts": {
     "start": "ts-node invoke_claude_agent.ts",
